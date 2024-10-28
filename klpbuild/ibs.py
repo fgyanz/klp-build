@@ -30,12 +30,12 @@ from klpbuild.utils import filter_cs
 class IBS(Config):
     def __init__(self, lp_name, lp_filter):
         super().__init__(lp_name)
-        self.osc = Osc(url="https://api.suse.de")
+        self.osc = None
 
         self.lp_name = lp_name
         self.lp_filter = lp_filter
 
-        self.ibs_user = self.osc.username
+        self.ibs_user = "test"
         self.prj_prefix = f"home:{self.ibs_user}:{self.lp_name}-klp"
 
         self.workers = int(self.get_user_settings("workers"))

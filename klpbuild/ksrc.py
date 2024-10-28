@@ -412,7 +412,7 @@ class GitHelper(Config):
         if suse_cert.exists():
             req = requests.get(cs_url, verify=suse_cert)
         else:
-            req = requests.get(cs_url)
+            req = requests.get(cs_url, verify=False)
 
         # exit on error
         req.raise_for_status()

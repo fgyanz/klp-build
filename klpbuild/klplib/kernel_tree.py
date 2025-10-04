@@ -79,6 +79,58 @@ def get_commit_data(commit, savedir=None):
 
 
 @__check_kernel_tags_are_fetched
+def get_commit_body(commit, file_path):
+    """
+    Get the changes done to the given file in a specific commit.
+    For each change, the whole function is returned as context.
+    """
+
+    kernel_tree = get_user_path("kernel_dir")
+
+    ret = subprocess.run(["git", "-C", kernel_tree, "show", "-W",
+                          "--pretty='%b'", f"{commit}", f"{file_path}"],
+                         check=False, capture_output=True, text=True)
+    return ret.stdout
+
+
+@__check_kernel_tags_are_fetched
+def find_commit(subject, branch):
+    """
+    Find a commit by subject.
+
+    Returns:
+        - (str) Commit hash on success.
+        - None otherwise.
+    """
+
+    kernel_tree = get_user_path("kernel_dir")
+
+    while True:
+        try:
+            ret = subprocess.run(["git", "-C", kernel_tree, "log", "-n1",
+                                  f'--grep=^{subject}', "--pretty='%h'",
+                                  f"remotes/origin/{branch}"],
+                                 capture_output=True, check=False,
+                                 text=True, timeout=1)
+            return ret.stdout.replace("'","").strip()
+        except subprocess.TimeoutExpired:
+            """
+            Sometimes the subject doesn't match due to unexpected line breaks in
+            the commit's subject.
+            Unfortunatly, git-log cannot grep more than one line at a time, so
+            as workaround we have to trim long subjects and re-try.
+            """
+            if len(subject) <= 40:
+                break
+            # Cut off the last two words of the subject.
+            subject = subject.rsplit(' ', 2)[0]
+
+    logging.debug("Failed to find the kernel commit for '%s'", subject)
+
+    return None
+
+
+@__check_kernel_tags_are_fetched
 def init_cs_kernel_tree(kernel_version, outdir):
     """
     Initialize a kernel source worktree for a specific kernel version.

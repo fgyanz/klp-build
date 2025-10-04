@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from klpbuild.klplib import utils
 from klpbuild.klplib.file2config import find_configs_for_files
-from klpbuild.klplib.ksrc import KERNEL_BRANCHES, get_patch_files
+from klpbuild.klplib.ksrc import KERNEL_BRANCHES, get_patches_files
 
 
 def analyse_files(cs_list, sle_patches):
@@ -17,9 +17,9 @@ def analyse_files(cs_list, sle_patches):
     Function that analyses, per codestream, each of the files modified
     by the backported patches.
     For each of the files it retrieves the corresponding kernel module
-    and config.
+    config and modified functions.
     Lastly, it returns back a report grouping the codestreams by files,
-    modules and configs.
+    modules, configs and modified functions.
 
     Args:
         cs_list (list): List of affected codestreams.
@@ -32,20 +32,21 @@ def analyse_files(cs_list, sle_patches):
             bc = cs.base_cs_name()
             patches = sle_patches[bc]
             branch = KERNEL_BRANCHES[bc]
-            files = get_patch_files(patches, branch)
-            fconfigs, _, missing = find_configs_for_files(cs, files)
+            files_funcs = get_patches_files(patches, branch)
+            files, _, _ = find_configs_for_files(cs, files_funcs.keys())
 
-            for file in missing:
-                key = f"{file}::"
+            for file, funcs in files_funcs.items():
+                fdat = files.get(file, {})
+                if fdat:
+                    fdat['symbols'] = funcs
+                    key = f"{file}:{fdat['config']}:{fdat['obj']}:{sorted(funcs)}"
+                else:
+                    key = f"{file}:::"
+
                 if cs not in report[key]:
                     report[key].append(cs)
 
-            for file, dat in fconfigs.items():
-                key = f"{file}:{dat['config']}:{dat['obj']}"
-                if cs not in report[key]:
-                    report[key].append(cs)
-
-            cs.files.update(fconfigs)
+            cs.files.update(files)
 
     return report
 
@@ -63,8 +64,9 @@ def print_files(report):
 
         conf = cs.files[file]['config']
         obj = cs.files[file]['obj']
-        logging.info("%s:\nFILE: %s\nCONF: %s\nOBJ: %s\n",
-                     cs_str, file, conf, obj)
+        funcs = cs.files[file]['symbols']
+        logging.info("%s:\nFILE: %s\nCONF: %s\nOBJ: %s\nFUNCS: %s\n",
+                     cs_str, file, conf, obj, ', '.join(funcs))
 
 
 def analyse_configs(cs_list):

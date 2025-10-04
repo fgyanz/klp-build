@@ -14,7 +14,9 @@ from functools import wraps
 
 from klpbuild.klplib import utils
 from klpbuild.klplib.config import get_user_path
-from klpbuild.klplib.kernel_tree import get_commit_data
+from klpbuild.klplib.kernel_tree import (get_commit_data,
+                                         get_commit_body,
+                                         find_commit)
 
 KERNEL_BRANCHES = {
     "12.5": "SLE12-SP5",
@@ -86,30 +88,70 @@ def __fetch_kernel_branches():
         logging.info("Fetch failed\n%s", ret.stderr)
 
 
-def get_patch_files(patches, branch):
+def __get_patch_files(patch, branch):
     """
-    Get the kernel files that have been modified by the give list of patches.
+    Return the files modified by the given patch.
+    """
+
+    kern_src = get_user_path('kernel_src_dir')
+    files = []
+
+    ret = subprocess.check_output(["/usr/bin/git", "-C", kern_src,
+                                   "grep", "-Ih", "^+++",
+                                   f"remotes/origin/{branch}:{patch}"]).decode()
+    for l in ret.splitlines():
+        # Remove the first caracters "+++ [a,b]/" in the line. Leftovers
+        # from the patch's diff.
+        files.append(l[6:])
+
+    return sorted(set(files))
+
+
+def get_patches_files(patches, branch):
+    """
+    Get the kernel files and functions that have been modified by the given
+    list of patches.
 
     Args:
         patches (list): Input list of patches to analyse.
         branch (str): Branch where to locate the given patches.
 
     returns:
-        List: Return the files modified by the given patches.
+        List: Return the files and functions modified by the given patches.
     """
+
+    files = {}
+    for p in patches:
+        s = get_patch_subject(p, branch)
+        kernel_commit = find_commit(s, branch)
+
+        for f in __get_patch_files(p, branch):
+            if f not in files:
+                files[f] = set()
+            if not kernel_commit:
+                continue
+
+            raw = get_commit_body(kernel_commit, f)
+            # Get the modified functions' name
+            funcs = re.findall(r"\s*(\w+)\s*\([^(]*\)\n\+*\s*{\n", raw)
+            files[f].update(set(funcs))
+
+    return files
+
+
+def get_patch_subject(patch, branch):
+    """
+    Get the subject field in the patch.
+    """
+
     kern_src = get_user_path('kernel_src_dir')
 
-    files = []
-    for p in patches:
-        ret = subprocess.check_output(["/usr/bin/git", "-C", kern_src,
-                                       "grep", "-Ih", "^+++",
-                                       f"remotes/origin/{branch}:{p}"]).decode()
-        for l in ret.splitlines():
-            # Remove the first caracters "+++ [a,b]/" in the line. Leftovers
-            # from the patch's diff.
-            files.append(l[6:])
+    ret = subprocess.check_output(["/usr/bin/git", "-C", kern_src,
+                                   "grep", "-Ih", "^Subject:",
+                                   f"remotes/origin/{branch}:{patch}"]).decode()
+    subj = re.sub(r"Subject:\s*(\[PATCH.*\])?", "", ret)
 
-    return sorted(set(files))
+    return subj.strip()
 
 
 def store_patch(pfile, patch, savedir, savedir_idx, bc):

@@ -33,7 +33,7 @@ def analyse_files(cs_list, sle_patches):
             patches = sle_patches[bc]
             branch = KERNEL_BRANCHES[bc]
             files_funcs = get_patches_files(patches, branch)
-            files, _, _ = find_configs_for_files(cs, files_funcs.keys())
+            files, _ = find_configs_for_files(cs, files_funcs.keys())
 
             for file, funcs in files_funcs.items():
                 fdat = files.get(file, {})

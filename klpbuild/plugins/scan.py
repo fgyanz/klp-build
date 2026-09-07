@@ -3,12 +3,20 @@
 # Copyright (C) 2021-2024 SUSE
 # Author: Marcos Paulo de Souza <mpdesouza@suse.com
 
-import logging
 import concurrent.futures
+import dataclasses
+import logging
+from dataclasses import dataclass
+
 import tabulate
 
 from klpbuild.klplib import utils
-from klpbuild.klplib import patch
+from klpbuild.klplib.analysis import (
+    analyse_files, analyse_kmodules, analyse_configs,
+    print_files, print_kmodules, print_configs,
+    filter_unsupported_kmodules,
+    filter_unset_configs,
+)
 from klpbuild.klplib.supported import get_supported_codestreams
 from klpbuild.klplib.data import download_missing_cs_data
 from klpbuild.klplib.ksrc import get_patches
@@ -17,6 +25,17 @@ from klpbuild.klplib.bugzilla import (
         is_bug_dropped, get_bug_dep,
         is_bug_embargoed,
         is_bug_fixed)
+
+@dataclass
+class JobResult:
+    status: str = "Not-Fixed"
+    archs: str = "None"
+    eol: str = "n/a"
+    affected: str = "No"
+
+    def __iter__(self):
+        return dataclasses.astuple(self).__iter__()
+
 
 PLUGIN_CMD = "scan"
 
@@ -64,11 +83,12 @@ def scan_bugzilla():
         for b in bugs:
             if is_bug_embargoed(b):
                 continue
-            cve, system, cvss, prio  = get_bug_data(b)
-            if not cve:
+            data = get_bug_data(b)
+            if not data.cve:
+                table.append([b.id, *data._replace(cve="None"), *JobResult()])
                 continue
-            job = executor.submit(scan_job, b, cve)
-            pool[job] = [b.id, cve, system, cvss, prio]
+            job = executor.submit(scan_job, b, data.cve)
+            pool[job] = [b.id, *data]
 
         for job in concurrent.futures.as_completed(pool):
             bug = pool[job]
@@ -79,42 +99,43 @@ def scan_bugzilla():
     logging.getLogger().setLevel(logging.INFO)
 
     logging.info(tabulate.tabulate(table, headers=["ID", "CVE", "SUBSYSTEM", "CVSS", "PRIORITY",
-                                                   "STATUS", "ARCHS", "EOL", "AFFECTED"]))
+                                                   "DEADLINE", "STATUS", "ARCHS", "EOL", "AFFECTED"]))
 
 
 def scan_job(bug, cve):
-    affected = "No"
-    status = "Not-Fixed"
-    affected_archs = "None"
-    eol = "n/a"
+    result = JobResult()
+
+    dep = get_bug_dep(bug)
+    if not dep:
+        result.status = "No-parent"
+        return result
+
+    if is_bug_dropped(dep):
+        result.status = "Dropped"
+        return result
+
+    if is_bug_fixed(dep):
+        result.status = "Fixed(0)"
 
     patches, _, _, affected_cs = scan(cve, None, None, False)
 
-    # Check if parent bug has been discarded or
-    # marked as already fixed.
-    dep = get_bug_dep(bug)
-    if is_bug_dropped(dep):
-        status = "Dropped"
-    elif is_bug_fixed(dep):
-        status = "Fixed(0)"
-
     npatches = len(set(f for _, files in patches.items() for f in files))
     if npatches:
-        status = f"Fixed({npatches})"
+        result.status = f"Fixed({npatches})"
 
     if dep and "security-team" not in dep.assigned_to:
-        status = f"Incomplete({npatches})"
+        result.status = f"Incomplete({npatches})"
 
     if affected_cs:
-        affected = utils.classify_codestreams_str(affected_cs)
-        eol = utils.get_lp_eol(affected_cs)
+        result.affected = utils.classify_codestreams_str(affected_cs)
+        result.eol = utils.get_lp_eol(affected_cs)
 
     # All = ppc64le, s390x and x86_64
     # None = klp-build failed to determine the CONFIGs.
     if (archs := utils.affected_archs(affected_cs)):
-        affected_archs = "All" if set(archs) == utils.ARCHS else ','.join(archs)
+        result.archs = "All" if set(archs) == utils.ARCHS else ','.join(archs)
 
-    return status, affected_archs, eol, affected
+    return result
 
 
 def scan(cve, conf, lp_filter, download, archs=None, savedir=None, extra_patches=None):
@@ -147,18 +168,18 @@ def scan(cve, conf, lp_filter, download, archs=None, savedir=None, extra_patches
     if patches and not conf:
         logging.info("Initiating patch analysis...\n")
         logging.info("[*] Analysing modified files...\n")
-        files_report = patch.analyse_files(affected_cs)
-        patch.print_files(files_report)
+        files_report = analyse_files(affected_cs)
+        print_files(files_report)
 
         logging.info("[*] Analysing required CONFIGs...\n")
-        configs_report = patch.analyse_configs(affected_cs)
-        patch.print_configs(configs_report)
-        conf_not_set, conf = patch.filter_unset_configs(affected_cs)
+        configs_report = analyse_configs(affected_cs)
+        print_configs(configs_report)
+        conf_not_set, conf = filter_unset_configs(affected_cs)
 
         logging.info("[*] Analysing affected kernel modules...\n")
-        kmodules_report = patch.analyse_kmodules(affected_cs)
-        patch.print_kmodules(kmodules_report)
-        unsupported = patch.filter_unsupported_kmodules(affected_cs)
+        kmodules_report = analyse_kmodules(affected_cs)
+        print_kmodules(kmodules_report)
+        unsupported = filter_unsupported_kmodules(affected_cs)
 
         working_archs = utils.affected_archs(affected_cs)
         logging.info("Affected architectures:")

@@ -121,10 +121,6 @@ def unclassify_codestreams(cs_group, cs_list):
     return [cs for cs in cs_list if cs.full_cs_name() in expanded]
 
 
-def is_mod(mod):
-    return mod != "vmlinux"
-
-
 def get_lp_number(lp_name):
     return lp_name.replace("bsc", "")
 
@@ -287,26 +283,33 @@ def check_module_unsupported(arch, mod_path):
     return "no" == get_elf_modinfo_entry(elffile, "supported")
 
 
-def filter_fast(cs_list):
+def filter_fast(lp_name, cs_list):
     '''
-    Return the first codestream of each product. For example, given the list
-        15.5u10, 15.5u11, 12.5u10, 6.0u0
-    The return would be
-        15.5u10, 12.5u10, 6.0u0
+    Smart filtering that only returns a small subset of affected
+    codestreams based on the existing livepatch branches and groups.
+    The subset contains the first codestream of each product within each
+    livepatch branch.
+
+    For example, given the branches:
+        bsc123456_15.5u10-11_12.5u10_6.0-15
+        bsc123456_15.5u9
+    The return would be:
+        15.5u9, 15.5u10, 12.5u10, 6.0u0
+
+    The livepatch branches must already exist for the filtering to work.
 
     Returns:
-        List: Containing only one entry per product
+        List: Containing only a subset of affected codestreams
     '''
-    ret = []
-    cs_once = []
+    lp_filter = []
+    git_dir = get_user_path('kgr_patches_dir')
 
-    for c in cs_list:
-        base = c.base_cs_name()
-        if base not in cs_once:
-            ret.append(c)
-            cs_once.append(base)
+    for b in get_lp_branches(lp_name, git_dir):
+        b = b.replace(lp_name + "_", "")
+        r = re.sub(r"-[0-9]{1,2}", '', b).replace("_", '|')
+        lp_filter.append(r)
 
-    return ret
+    return filter_codestreams("|".join(lp_filter), cs_list)
 
 
 def filter_codestreams(lp_filter, cs_list, verbose=False):
@@ -320,7 +323,7 @@ def filter_codestreams(lp_filter, cs_list, verbose=False):
     filtered = []
     for cs in cs_list:
         name = cs.full_cs_name()
-        if re.match(lp_filter, name):
+        if re.fullmatch(lp_filter, name):
             result.append(cs)
         else:
             filtered.append(name)
@@ -355,8 +358,8 @@ def filter_codestreams_by_arch(archs, cs_list):
 def affected_archs(cs_list):
     conf_archs = set()
     for cs in cs_list:
-        for val in cs.configs.values():
-            conf_archs.update(val)
+        for cfg in cs.configs.values():
+            conf_archs.update(cfg.archs())
 
     return sorted(conf_archs)
 
@@ -384,14 +387,6 @@ def get_mail():
     email = git_data.get_value("user", "email")
 
     return user, email
-
-def fix_mod_string(mod):
-    if not is_mod(mod):
-        return ""
-
-    # Modules like snd-pcm needs to be replaced by snd_pcm in LP_MODULE
-    # and in kallsyms lookup
-    return os.path.basename(mod.replace("-", "_"))
 
 
 def get_fname(src_name):
@@ -507,6 +502,19 @@ def is_lp_eol_soon(cs_list):
     '''
     eol = date.fromisoformat(get_lp_eol(cs_list))
     return eol <= date.today() + timedelta(days=30)
+
+
+def date_to_days(date_str):
+    '''
+    Given a date string (YYYY-MM-DD), return the number of days
+    left until/since then from today.
+
+    Return:
+        str: "+d": 'd' days left until date.
+            "-d": 'd' days since that date.
+    '''
+    days = (date.fromisoformat(date_str) - date.today()).days
+    return f"+{days}" if days >= 0 else str(days)
 
 
 def validate_lp_name(lp_name):

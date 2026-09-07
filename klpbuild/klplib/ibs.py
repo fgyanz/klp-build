@@ -5,7 +5,6 @@
 
 import concurrent.futures
 import dataclasses
-import errno
 from itertools import repeat
 import logging
 import os
@@ -21,9 +20,10 @@ from lxml import etree
 from natsort import natsorted
 from osctiny import Osc
 
+from klpbuild.klplib.affected_file import AffectedModule
 from klpbuild.klplib.codestream import Codestream
 from klpbuild.klplib.config import get_user_settings
-from klpbuild.klplib.utils import ARCH, get_all_symbols_from_object, get_datadir
+from klpbuild.klplib.utils import ARCH, ARCHS, get_all_symbols_from_object, get_datadir
 
 logging.getLogger("osctiny").setLevel(logging.WARNING)
 
@@ -65,7 +65,7 @@ def do_work(func, args: list[RPMData]):
 # We can try delete a project that was removed, so don't bother with errors
 def delete_built_rpms(cs, lp_name):
     try:
-        for arch in cs.archs:
+        for arch in ARCHS:
             shutil.rmtree(Path(cs.get_ccp_dir(lp_name), arch, "rpm"), ignore_errors=True)
     except KeyError:
         pass
@@ -141,7 +141,7 @@ def get_cs_packages(cs_list, dest):
 
 
 def find_missing_symbols(cs, arch, lp_mod_path):
-    vmlinux_path = get_datadir(arch) / cs.find_obj_path(arch, "vmlinux")
+    vmlinux_path = get_datadir(arch) / cs.find_obj_path(arch, AffectedModule.VMLINUX)
     vmlinux_syms = get_all_symbols_from_object(vmlinux_path, True)
 
     # Get list of UNDEFINED symbols from the livepatch module
@@ -175,7 +175,7 @@ def validate_livepatch_module(cs, arch, rpm_dir, rpm):
 
 def verify_rpm(rpm_path):
     ret = subprocess.run(["rpm", "-K", "--nosignature", str(rpm_path)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, check=False)
     if ret.returncode != 0:
         logging.error("RPM verification failed for %s", rpm_path)
         return False

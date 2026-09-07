@@ -36,7 +36,6 @@ setuptools.setup(
         "console_scripts": ["klp-build=klpbuild.main:main"],
     },
     install_requires=[
-        "configparser",
         "cached_property",
         "GitPython",
         "lxml",
@@ -49,7 +48,7 @@ setuptools.setup(
         "pyelftools",
         "zstandard",
         "python-bugzilla",
-        "python-magic",
+        "file-magic",
         "tabulate",
         "termcolor"
     ],

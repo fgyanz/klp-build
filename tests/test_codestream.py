@@ -31,11 +31,13 @@ def test_find_obj_path_arch():
         ],
         "files": {
             "net/sched/sch_taprio.c": {
-                "module": "sch_taprio",
-                "conf": "CONFIG_NET_SCH_TAPRIO",
-                "symbols": [
+                "module_name": "sch_taprio",
+                "config_name": "CONFIG_NET_SCH_TAPRIO",
+                "affected_symbols": [
                         "taprio_change"
                 ],
+                "ibt": False,
+                "dup_symbols": [],
                 "ext_symbols": {
                     "sch_taprio": [
                         "advance_sched",
@@ -51,11 +53,24 @@ def test_find_obj_path_arch():
                         "taprio_policy",
                         "taprio_set_picos_per_byte"
                     ]
-                }
+                },
+                "klpp_symbols": {}
             }
         },
         "modules": {
-            "sch_taprio": "lib/modules/5.14.21-150500.55.68-default/kernel/net/sched/sch_taprio.ko"
+            "sch_taprio": {
+                "supported": True,
+                "blacklisted": False,
+                "obj_paths": {
+                    # The bug this test guards against is find_obj_path
+                    # returning a path that contains the arch name (because
+                    # the cache used to be arch-blind). Cache the same
+                    # arch-relative path under each arch key.
+                    "x86_64":  "lib/modules/5.14.21-150500.55.68-default/kernel/net/sched/sch_taprio.ko",
+                    "ppc64le": "lib/modules/5.14.21-150500.55.68-default/kernel/net/sched/sch_taprio.ko",
+                    "s390x":   "lib/modules/5.14.21-150500.55.68-default/kernel/net/sched/sch_taprio.ko",
+                }
+            }
         },
         "repo": "SUSE_SLE-15-SP5_Update",
         "configs": {
@@ -72,3 +87,40 @@ def test_sle16rt_config():
     cs = Codestream("16.0rtu0", kernel="6.12.0-160000.11")
     config_content = cs.get_config_content()
     assert "CONFIG_RCU_BOOST_DELAY" in config_content
+
+
+def test_get_file_mod_builtin_arch_config():
+    """
+    Ensure get_file_mod returns the specified module when the config is an
+    architecture/builtin config (e.g. CONFIG_X86=y) rather than overriding it
+    with vmlinux.
+    """
+    cs = Codestream.from_data({
+        "name": "15.4u55",
+        "project": "SUSE:Maintenance:44719",
+        "patchid": "",
+        "kernel": "5.14.21-150400.24.222",
+        "eol": "2026-12-31",
+        "archs": ["x86_64"],
+        "files": {
+            "arch/x86/kvm/mmu/mmu.c": {
+                "config_name": "CONFIG_X86",
+                "module_name": "kvm",
+                "affected_symbols": ["paging32_page_fault"],
+                "ibt": False,
+                "dup_symbols": [],
+                "ext_symbols": {},
+                "klpp_symbols": {}
+            }
+        },
+        "modules": {},
+        "configs": {
+            "CONFIG_X86": {"x86_64": "y"}
+        },
+        "required_patches": []
+    })
+
+    mod = cs.get_file_mod("arch/x86/kvm/mmu/mmu.c", "x86_64")
+    assert mod.name == "kvm"
+    assert "kvm" in cs.modules
+    assert "vmlinux" not in cs.modules

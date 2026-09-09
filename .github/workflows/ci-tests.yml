@@ -18,11 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: opensuse/tumbleweed:latest
+      options: --device /dev/fuse --cap-add SYS_ADMIN --security-opt seccomp=unconfined
     steps:
     - uses: actions/checkout@v4
 
     - name: Install dependencies
-      run: zypper in -y python3-devel git python3-pytest tox python3-magic
+      run: |
+        zypper --gpg-auto-import-keys addrepo https://download.opensuse.org/repositories/home:/fgonzalez/openSUSE_Tumbleweed/home:fgonzalez.repo
+        zypper --gpg-auto-import-keys refresh
+        zypper --non-interactive install --no-confirm git-fs python3-devel git python3-pytest tox python3-magic
 
     - name: Run pylint
       run: >

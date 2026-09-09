@@ -18,11 +18,26 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: opensuse/tumbleweed:latest
+      options: >-
+        --privileged
+        --device /dev/fuse
     steps:
     - uses: actions/checkout@v4
 
     - name: Install dependencies
-      run: zypper in -y python3-devel git python3-pytest tox python3-magic
+      run: |
+        zypper --non-interactive install --no-confirm \
+          gcc make pkgconf-pkg-config fuse3-devel libgit2-devel \
+          python3-devel git python3-pytest tox python3-magic
+
+        # FIXME: FUSE_CAP_PASSTHROUGH negotiates fine but reads against
+        # the memfd-backed blob content fail with EIO on this kernel.
+        # Build git-fs locally with it forced off until root-caused,
+        # instead of installing the packaged binary.
+        git clone https://github.com/fgyanz/git-fs /tmp/git-fs
+        sed -i 's/conf.passthrough = 1;/conf.passthrough = 0;/' /tmp/git-fs/git-fs.c
+        make -C /tmp/git-fs
+        make -C /tmp/git-fs install
 
     - name: Run pylint
       run: >
@@ -64,14 +79,14 @@ jobs:
       id: cache-ksrc
       uses: actions/cache@v4
       with:
-        path: build/kernel-source
+        path: /root/kernel-source
         key: kernel-source-${{ steps.get-month.outputs.month }}
 
     - name: Cache kernel.git
       id: cache-kernel
       uses: actions/cache@v4
       with:
-        path: build/kernel
+        path: /root/kernel
         key: kernel-${{ steps.get-month.outputs.month }}
 
     - if: ${{ steps.cache-ksrc.outputs.cache-hit != 'true' }}
@@ -79,18 +94,20 @@ jobs:
       # Hopefully we won't have the need to do it very often.
       name: Download kernel-source
       continue-on-error: false
-      run: git clone https://github.com/SUSE/kernel-source build/kernel-source
+      run: git clone https://github.com/SUSE/kernel-source /root/kernel-source
 
     - if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
       # It will take around 25min to download the whole repo.
       # Hopefully we won't have the need to do it very often.
       name: Download kernel
       continue-on-error: false
-      run: git clone https://github.com/SUSE/kernel build/kernel
+      run: git clone https://github.com/SUSE/kernel /root/kernel
 
     - name: Run klp-build tests
+      env:
+        HOME: /root
       run: |
-        mkdir -p ~/.config/klp-build &&
-        cp tests/config ~/.config/klp-build/ &&
-        mkdir -p klp/{livepatches,data} &&
+        mkdir -p /root/.config/klp-build &&
+        cp tests/config /root/.config/klp-build/ &&
+        mkdir -p /root/klp/{livepatches,data,repos} &&
         tox -e tests -- tests/test_{ksrc,analysis,file2config,scan,config,kernel,utils,codestream}.py

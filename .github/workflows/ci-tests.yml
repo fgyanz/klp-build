@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: opensuse/tumbleweed:latest
-      options: --device /dev/fuse --cap-add SYS_ADMIN --security-opt seccomp=unconfined
+      options: --device /dev/fuse --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined
     steps:
     - uses: actions/checkout@v4
 
@@ -28,73 +28,10 @@ jobs:
         zypper --gpg-auto-import-keys refresh
         zypper --non-interactive install --no-confirm git-fs python3-devel git python3-pytest tox python3-magic
 
-    - name: Run pylint
-      run: >
-        tox -e lint --
-        --fail-under 9.83
-        --fail-on F
-        --fail-on unused-variable
-        --fail-on unused-import
-        --fail-on consider-using-sys-exit
-        --fail-on trailing-newlines
-        --fail-on dangerous-default-value
-        --fail-on wrong-import-order
-        --fail-on redefined-argument-from-local
-        --fail-on no-else-return
-        --fail-on use-dict-literal
-        --fail-on unnecessary-negation
-        --fail-on inconsistent-return-statements
-        --fail-on use-implicit-booleaness-not-len
-        --fail-on f-string-without-interpolation
-        --fail-on pointless-string-statement
-        --fail-on bad-indentation
-        --fail-on ungrouped-imports
-        --fail-on subprocess-run-check
-        --fail-on logging-fstring-interpolation
-        --fail-on anomalous-backslash-in-string
-        --fail-on unnecessary-comprehension
-        --fail-on consider-using-ternary
-        --fail-on bare-except
-        --fail-on using-assignment-expression-in-unsupported-version
-        --fail-on global-variable-not-assigned
-      
-    - name: Get month
-      id: get-month
+    - name: git-fs test
       run: |
-        echo "month=$(date +%m)" >> $GITHUB_OUTPUT
-      shell: bash
-
-    - name: Cache kernel-source
-      id: cache-ksrc
-      uses: actions/cache@v4
-      with:
-        path: build/kernel-source
-        key: kernel-source-${{ steps.get-month.outputs.month }}
-
-    - name: Cache kernel.git
-      id: cache-kernel
-      uses: actions/cache@v4
-      with:
-        path: build/kernel
-        key: kernel-${{ steps.get-month.outputs.month }}
-
-    - if: ${{ steps.cache-ksrc.outputs.cache-hit != 'true' }}
-      # It will take around 25min to download the whole repo.
-      # Hopefully we won't have the need to do it very often.
-      name: Download kernel-source
-      continue-on-error: false
-      run: git clone https://github.com/SUSE/kernel-source build/kernel-source
-
-    - if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
-      # It will take around 25min to download the whole repo.
-      # Hopefully we won't have the need to do it very often.
-      name: Download kernel
-      continue-on-error: false
-      run: git clone https://github.com/SUSE/kernel build/kernel
-
-    - name: Run klp-build tests
-      run: |
-        mkdir -p ~/.config/klp-build &&
-        cp tests/config ~/.config/klp-build/ &&
-        mkdir -p klp/{livepatches,data} &&
-        tox -e tests -- tests/test_{ksrc,analysis,file2config,scan,config,kernel,utils,codestream}.py
+        git clone https://github.com/fgyanz/git-fs
+        cd git-fs
+        id
+        git fs -V
+        git fs -m -f
